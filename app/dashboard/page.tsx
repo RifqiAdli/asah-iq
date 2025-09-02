@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import dynamic from 'next/dynamic';
 
 interface DashboardStats {
   totalGames: number;
@@ -20,8 +21,8 @@ interface DashboardStats {
   achievements: any[];
 }
 
-export default function DashboardPage() {
-  const { user, profile, signOut } = useAuth();
+function DashboardContent() {
+  const { user, profile, signOut, loading: authLoading } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats>({
     totalGames: 0,
@@ -32,35 +33,52 @@ export default function DashboardPage() {
     achievements: []
   });
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  // Ensure component is mounted on client side
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
+    if (!mounted) return;
+    
+    if (authLoading) return; // Wait for auth to finish loading
+
     if (!user) {
       router.push('/auth/login');
       return;
     }
+    
     fetchDashboardStats();
-  }, [user, router]);
+  }, [user, router, authLoading, mounted]);
 
   const fetchDashboardStats = async () => {
-    if (!user) return;
+    if (!user || !mounted) return;
 
     try {
-      // Fetch game sessions
-      const { data: sessions } = await supabase
+      setLoading(true);
+      
+      // Fetch game sessions with error handling
+      const { data: sessions, error: sessionsError } = await supabase
         .from('game_sessions')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(5);
 
+      if (sessionsError) {
+        console.error('Error fetching sessions:', sessionsError);
+      }
+
       // Calculate stats
       const totalGames = sessions?.length || 0;
       const averageScore = sessions?.length 
-        ? Math.round(sessions.reduce((sum, session) => sum + session.score, 0) / sessions.length)
+        ? Math.round(sessions.reduce((sum, session) => sum + (session.score || 0), 0) / sessions.length)
         : 0;
 
-      // Fetch user achievements
-      const { data: achievements } = await supabase
+      // Fetch user achievements with error handling
+      const { data: achievements, error: achievementsError } = await supabase
         .from('user_achievements')
         .select(`
           *,
@@ -72,6 +90,10 @@ export default function DashboardPage() {
           )
         `)
         .eq('user_id', user.id);
+
+      if (achievementsError) {
+        console.error('Error fetching achievements:', achievementsError);
+      }
 
       setStats({
         totalGames,
@@ -89,21 +111,30 @@ export default function DashboardPage() {
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    router.push('/');
+    try {
+      await signOut();
+      router.push('/');
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
 
-  const currentLevel = profile?.current_level || 1;
-  const pointsForNextLevel = currentLevel * 1000;
-  const currentLevelProgress = ((profile?.total_points || 0) % 1000) / 10;
+  // Don't render anything until mounted on client
+  if (!mounted) {
+    return null;
+  }
 
-  if (!user || loading) {
+  if (authLoading || !user || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
   }
+
+  const currentLevel = profile?.current_level || 1;
+  const pointsForNextLevel = currentLevel * 1000;
+  const currentLevelProgress = ((profile?.total_points || 0) % 1000) / 10;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -115,7 +146,7 @@ export default function DashboardPage() {
               <Brain className="h-8 w-8 text-primary" />
               <span className="font-bold text-xl text-gray-900">Asah IQ</span>
             </Link>
-            <nav className="flex items-center space-x-6">
+            <nav className="hidden md:flex items-center space-x-6">
               <Link href="/dashboard" className="text-primary font-medium">
                 Dashboard
               </Link>
@@ -151,7 +182,7 @@ export default function DashboardPage() {
         {/* Welcome Section */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Selamat Datang, {profile?.full_name || profile?.username}!
+            Selamat Datang, {profile?.full_name || profile?.username || 'User'}!
           </h1>
           <p className="text-gray-600">
             Siap untuk mengasah kemampuan IQ Anda hari ini?
@@ -291,10 +322,10 @@ export default function DashboardPage() {
                           <Trophy className="h-5 w-5 text-yellow-600" />
                         </div>
                         <div className="flex-1">
-                          <p className="font-medium text-sm">{achievement.achievements.name}</p>
-                          <p className="text-xs text-gray-500">{achievement.achievements.description}</p>
+                          <p className="font-medium text-sm">{achievement.achievements?.name || 'Achievement'}</p>
+                          <p className="text-xs text-gray-500">{achievement.achievements?.description || 'Description'}</p>
                         </div>
-                        <Badge variant="secondary">+{achievement.achievements.points}</Badge>
+                        <Badge variant="secondary">+{achievement.achievements?.points || 0}</Badge>
                       </div>
                     ))}
                   </div>
@@ -329,16 +360,16 @@ export default function DashboardPage() {
                         <Brain className="h-5 w-5 text-primary" />
                       </div>
                       <div>
-                        <p className="font-medium">Quiz #{game.id.slice(0, 8)}</p>
+                        <p className="font-medium">Quiz #{String(game.id).slice(0, 8)}</p>
                         <p className="text-sm text-gray-500">
-                          {game.correct_answers}/{game.total_questions} benar - {game.total_time}s
+                          {game.correct_answers || 0}/{game.total_questions || 0} benar - {game.total_time || 0}s
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-lg">{game.score}%</p>
-                      <Badge variant={game.score >= 80 ? 'default' : game.score >= 60 ? 'secondary' : 'destructive'}>
-                        {game.score >= 80 ? 'Excellent' : game.score >= 60 ? 'Good' : 'Fair'}
+                      <p className="font-bold text-lg">{game.score || 0}%</p>
+                      <Badge variant={(game.score || 0) >= 80 ? 'default' : (game.score || 0) >= 60 ? 'secondary' : 'destructive'}>
+                        {(game.score || 0) >= 80 ? 'Excellent' : (game.score || 0) >= 60 ? 'Good' : 'Fair'}
                       </Badge>
                     </div>
                   </div>
@@ -351,3 +382,15 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+// Use dynamic import to disable SSR for this component
+const Dashboard = dynamic(() => Promise.resolve(DashboardContent), {
+  ssr: false,
+  loading: () => (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+    </div>
+  )
+});
+
+export default Dashboard;
