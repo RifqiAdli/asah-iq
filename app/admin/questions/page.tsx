@@ -38,6 +38,19 @@ interface Category {
   description: string;
 }
 
+type FormData = {
+  question: string;
+  type: 'multiple_choice' | 'true_false' | 'text_input';
+  category_id: number;
+  difficulty: 'easy' | 'medium' | 'hard' | 'expert';
+  options: string[];
+  correct_answer: number | boolean | string;
+  explanation: string;
+  time_limit: number;
+  points: number;
+  image_url: string;
+};
+
 export default function AdminQuestionsPage() {
   const { user, profile } = useAuth();
   const router = useRouter();
@@ -49,11 +62,11 @@ export default function AdminQuestionsPage() {
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>('all');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     question: '',
-    type: 'multiple_choice' as const,
+    type: 'multiple_choice',
     category_id: 0,
-    difficulty: 'easy' as const,
+    difficulty: 'easy',
     options: ['', '', '', ''],
     correct_answer: 0,
     explanation: '',
@@ -109,13 +122,29 @@ export default function AdminQuestionsPage() {
     if (!user) return;
 
     try {
+      // Handle correct_answer based on question type
+      let correctAnswer: any;
+      
+      if (formData.type === 'multiple_choice') {
+        correctAnswer = formData.correct_answer;
+      } else if (formData.type === 'true_false') {
+        correctAnswer = formData.correct_answer === 1;
+      } else {
+        correctAnswer = formData.correct_answer;
+      }
+
       const questionData = {
-        ...formData,
+        question: formData.question,
+        type: formData.type,
+        category_id: formData.category_id,
+        difficulty: formData.difficulty,
+        explanation: formData.explanation,
+        time_limit: formData.time_limit,
+        points: formData.points,
+        image_url: formData.image_url || null,
         created_by: user.id,
         options: formData.type === 'multiple_choice' ? formData.options : null,
-        correct_answer: formData.type === 'true_false' 
-          ? formData.correct_answer === 1 
-          : formData.correct_answer
+        correct_answer: correctAnswer
       };
 
       const { error } = await supabase
@@ -166,6 +195,25 @@ export default function AdminQuestionsPage() {
       points: 10,
       image_url: ''
     });
+    setEditingQuestion(null);
+  };
+
+  const handleTypeChange = (newType: 'multiple_choice' | 'true_false' | 'text_input') => {
+    let newCorrectAnswer: number | boolean | string;
+    
+    if (newType === 'multiple_choice') {
+      newCorrectAnswer = 0;
+    } else if (newType === 'true_false') {
+      newCorrectAnswer = 1; // 1 for true, 0 for false
+    } else {
+      newCorrectAnswer = '';
+    }
+
+    setFormData(prev => ({ 
+      ...prev, 
+      type: newType, 
+      correct_answer: newCorrectAnswer 
+    }));
   };
 
   const filteredQuestions = questions.filter(question => {
@@ -222,7 +270,9 @@ export default function AdminQuestionsPage() {
               </DialogTrigger>
               <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                  <DialogTitle>Tambah Soal Baru</DialogTitle>
+                  <DialogTitle>
+                    {editingQuestion ? 'Edit Soal' : 'Tambah Soal Baru'}
+                  </DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleCreateQuestion} className="space-y-4">
                   <div className="space-y-2">
@@ -242,7 +292,7 @@ export default function AdminQuestionsPage() {
                       <Label htmlFor="type">Tipe Soal</Label>
                       <Select
                         value={formData.type}
-                        onValueChange={(value: any) => setFormData(prev => ({ ...prev, type: value }))}
+                        onValueChange={handleTypeChange}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -325,12 +375,25 @@ export default function AdminQuestionsPage() {
                     </div>
                   )}
 
+                  {formData.type === 'text_input' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="text_answer">Jawaban Benar</Label>
+                      <Input
+                        id="text_answer"
+                        value={formData.correct_answer as string}
+                        onChange={(e) => setFormData(prev => ({ ...prev, correct_answer: e.target.value }))}
+                        placeholder="Masukkan jawaban yang benar..."
+                        required
+                      />
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="difficulty">Kesulitan</Label>
                       <Select
                         value={formData.difficulty}
-                        onValueChange={(value: any) => setFormData(prev => ({ ...prev, difficulty: value }))}
+                        onValueChange={(value: 'easy' | 'medium' | 'hard' | 'expert') => setFormData(prev => ({ ...prev, difficulty: value }))}
                       >
                         <SelectTrigger>
                           <SelectValue />
@@ -380,12 +443,25 @@ export default function AdminQuestionsPage() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="image_url">URL Gambar (Opsional)</Label>
+                    <Input
+                      id="image_url"
+                      value={formData.image_url}
+                      onChange={(e) => setFormData(prev => ({ ...prev, image_url: e.target.value }))}
+                      placeholder="https://example.com/image.jpg"
+                    />
+                  </div>
+
                   <div className="flex justify-end space-x-2">
-                    <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>
+                    <Button type="button" variant="outline" onClick={() => {
+                      setShowCreateDialog(false);
+                      resetForm();
+                    }}>
                       Batal
                     </Button>
                     <Button type="submit">
-                      Simpan Soal
+                      {editingQuestion ? 'Update Soal' : 'Simpan Soal'}
                     </Button>
                   </div>
                 </form>
