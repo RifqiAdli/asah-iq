@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     // Process categories data
     const processedCategories = categories?.map(category => {
       const questions = category.questions || [];
-      const difficulties = [...new Set(questions.map((q: any) => q.difficulty))];
+      const difficulties = Array.from(new Set(questions.map((q: any) => q.difficulty)));
       
       return {
         id: category.id,
